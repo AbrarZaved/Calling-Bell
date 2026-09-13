@@ -43,7 +43,7 @@ const msg = document.getElementById("msg");
 
 async function refresh() {
   try {
-    const r = await fetch("/api/receivers");
+    const r = await fetch("./api/receivers");
     const d = await r.json();
     status.textContent = d.receivers + " receiver" + (d.receivers === 1 ? "" : "s") + " listening";
   } catch (e) {
@@ -56,7 +56,7 @@ bell.addEventListener("click", async () => {
   const original = bell.textContent;
   bell.textContent = "…";
   try {
-    const r = await fetch("/api/ring", {
+    const r = await fetch("./api/ring", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ message: msg.value.trim() || "Someone is at the door!" }),

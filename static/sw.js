@@ -16,14 +16,14 @@ self.addEventListener("push", (event) => {
       renotify: true,
       requireInteraction: true,
       vibrate: [300, 150, 300, 150, 500],
-      data: { url: "/receive" },
+      data: { url: "/bell/receive" },
     })
   );
 });
 
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
-  const target = (event.notification.data && event.notification.data.url) || "/receive";
+  const target = (event.notification.data && event.notification.data.url) || "/bell/receive";
   event.waitUntil(
     self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((list) => {
       for (const client of list) {

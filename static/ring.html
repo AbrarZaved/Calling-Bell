@@ -41,11 +41,25 @@ const bell = document.getElementById("bell");
 const status = document.getElementById("status");
 const msg = document.getElementById("msg");
 
+function setStatus(d) {
+  if (d.receivers > 0) {
+    status.textContent = d.receivers + " receiver" + (d.receivers === 1 ? "" : "s") + " listening";
+    return;
+  }
+
+  if (d.subscriptions > 0) {
+    status.textContent = "No receiver tab is open right now; background push is ready for " + d.subscriptions + " subscribed device" + (d.subscriptions === 1 ? "" : "s") + ".";
+    return;
+  }
+
+  status.textContent = "Nobody has /receive open yet";
+}
+
 async function refresh() {
   try {
     const r = await fetch("./api/receivers");
     const d = await r.json();
-    status.textContent = d.receivers + " receiver" + (d.receivers === 1 ? "" : "s") + " listening";
+    setStatus(d);
   } catch (e) {
     status.textContent = "Server unreachable";
   }
@@ -63,9 +77,13 @@ bell.addEventListener("click", async () => {
     });
     const d = await r.json();
     bell.textContent = d.receivers > 0 ? "RANG ✓" : "NO RECEIVER";
-    status.textContent = d.receivers > 0
-      ? "Delivered to " + d.receivers + " device" + (d.receivers === 1 ? "" : "s")
-      : "Nobody has /receive open yet";
+    if (d.receivers > 0) {
+      status.textContent = "Delivered to " + d.receivers + " device" + (d.receivers === 1 ? "" : "s");
+    } else if (d.subscriptions > 0) {
+      status.textContent = "No receiver tab is open right now; background push was sent to " + d.subscriptions + " subscribed device" + (d.subscriptions === 1 ? "" : "s") + ".";
+    } else {
+      status.textContent = "Nobody has /receive open yet";
+    }
     if (navigator.vibrate) navigator.vibrate(120);
   } catch (e) {
     bell.textContent = "FAILED";

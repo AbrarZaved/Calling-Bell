@@ -1,0 +1,238 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="theme-color" content="#dc2626" />
+<link rel="manifest" href="/manifest.webmanifest" />
+<title>Bell Receiver</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 16px; padding: 24px;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: #0f1115; color: #e8eaed; text-align: center;
+    transition: background .15s ease;
+  }
+  body.alert { background: #7f1d1d; }
+  h1 { font-size: 20px; margin: 0; font-weight: 600; }
+  p  { margin: 0; color: #9aa0a6; font-size: 14px; line-height: 1.5; }
+  button {
+    appearance: none; border: 0; border-radius: 14px; padding: 15px 22px;
+    font-size: 16px; font-weight: 600; background: #2563eb; color: #fff;
+    cursor: pointer; min-width: 280px;
+  }
+  button.secondary { background: #2a2f3a; font-size: 14px; padding: 11px 18px; }
+  button:disabled { background: #1f2530; color: #7c828c; cursor: default; }
+  #status { font-size: 13px; }
+  .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%;
+         background: #ef4444; margin-right: 7px; vertical-align: middle; }
+  .dot.on { background: #22c55e; }
+  #log, #push { font-size: 13px; color: #cbd5e1; max-width: 430px; }
+  #push.warn { color: #fbbf24; }
+  .big { font-size: 44px; }
+</style>
+</head>
+<body>
+  <div class="big" id="emoji">🔔</div>
+  <h1>Bell receiver</h1>
+  <button id="enable">Enable notifications + sound</button>
+  <button id="background" class="secondary">Also notify when this tab is closed</button>
+  <p id="status"><span class="dot" id="dot"></span><span id="statusText">Connecting…</span></p>
+  <p id="push"></p>
+  <p id="log">Keep this tab open for instant sound. Background notifications keep working after you close it.</p>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let audioCtx = null;
+
+/* ---------------------------- sound ---------------------------- */
+function tone(freq, startAt, duration, volume) {
+  if (!audioCtx) return;
+  const t = audioCtx.currentTime + startAt;
+  const osc = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+  osc.type = "sine";
+  osc.frequency.setValueAtTime(freq, t);
+  gain.gain.setValueAtTime(0, t);
+  gain.gain.linearRampToValueAtTime(volume, t + 0.02);
+  gain.gain.exponentialRampToValueAtTime(0.0001, t + duration);
+  osc.connect(gain); gain.connect(audioCtx.destination);
+  osc.start(t); osc.stop(t + duration + 0.05);
+}
+
+function beep() {
+  if (!audioCtx) return;
+  audioCtx.resume();
+  tone(880, 0.00, 0.28, 0.35);
+  tone(660, 0.32, 0.28, 0.35);
+  tone(990, 0.64, 0.45, 0.35);
+}
+
+/* --------------------- foreground arming ---------------------- */
+async function enable() {
+  try {
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    await audioCtx.resume();
+    const g = audioCtx.createGain();
+    g.gain.value = 0.0001; g.connect(audioCtx.destination);
+    const o = audioCtx.createOscillator();
+    o.connect(g); o.start(); o.stop(audioCtx.currentTime + 0.02);
+  } catch (e) {}
+
+  if ("Notification" in window && Notification.permission !== "granted") {
+    try { await Notification.requestPermission(); } catch (e) {}
+  }
+
+  $("enable").disabled = true;
+  $("enable").textContent = "Sound armed ✓";
+  beep();
+}
+
+/* -------------------- background web push --------------------- */
+function b64ToUint8(base64) {
+  const padded = (base64 + "=".repeat((4 - (base64.length % 4)) % 4))
+    .replace(/-/g, "+").replace(/_/g, "/");
+  const raw = atob(padded);
+  return Uint8Array.from([...raw].map((c) => c.charCodeAt(0)));
+}
+
+function setPush(text, warn) {
+  $("push").textContent = text;
+  $("push").classList.toggle("warn", !!warn);
+}
+
+async function enableBackground() {
+  const btn = $("background");
+  btn.disabled = true;
+
+  if (!("serviceWorker" in navigator) || !("PushManager" in window)) {
+    setPush("This browser can't do background push. Use bell_client.py on a computer, or the ntfy option on a phone.", true);
+    return;
+  }
+  if (!window.isSecureContext) {
+    setPush("Background push needs HTTPS (or localhost). Create local certs and restart the server — README step 6.", true);
+    btn.disabled = false;
+    return;
+  }
+
+  try {
+    const keyResp = await fetch("/api/vapid-public-key");
+    const info = await keyResp.json();
+    if (!info.enabled || !info.key) {
+      setPush("Server has no VAPID keys yet. Run: python gen_vapid_keys.py, then restart the server.", true);
+      btn.disabled = false;
+      return;
+    }
+
+    const permission = await Notification.requestPermission();
+    if (permission !== "granted") {
+      setPush("Notification permission denied — allow it in browser settings, then tap again.", true);
+      btn.disabled = false;
+      return;
+    }
+
+    const reg = await navigator.serviceWorker.register("/sw.js", { scope: "/" });
+    await navigator.serviceWorker.ready;
+
+    let sub = await reg.pushManager.getSubscription();
+    if (!sub) {
+      sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: b64ToUint8(info.key),
+      });
+    }
+
+    const save = await fetch("/api/subscribe", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(sub),
+    });
+    if (!save.ok) throw new Error("server rejected the subscription");
+
+    btn.textContent = "Background notifications on ✓";
+    setPush("Registered. You'll be notified even with this tab or the browser closed.");
+  } catch (err) {
+    setPush("Couldn't register background push: " + err.message, true);
+    btn.disabled = false;
+  }
+}
+
+async function refreshBackgroundState() {
+  if (!("serviceWorker" in navigator) || !window.isSecureContext) return;
+  try {
+    const reg = await navigator.serviceWorker.getRegistration("/");
+    const sub = reg && (await reg.pushManager.getSubscription());
+    if (sub) {
+      $("background").disabled = true;
+      $("background").textContent = "Background notifications on ✓";
+      setPush("Registered. You'll be notified even with this tab or the browser closed.");
+    }
+  } catch (e) {}
+}
+
+/* ------------------------ live ring feed ----------------------- */
+function flash(message) {
+  document.body.classList.add("alert");
+  $("emoji").textContent = "🚨";
+  $("log").textContent = message + "  ·  " + new Date().toLocaleTimeString();
+  setTimeout(() => {
+    document.body.classList.remove("alert");
+    $("emoji").textContent = "🔔";
+  }, 4000);
+}
+
+function onRing(data) {
+  const message = (data && data.message) || "Someone is at the door!";
+  beep();
+  setTimeout(beep, 1200);
+  flash(message);
+  if (navigator.vibrate) navigator.vibrate([300, 150, 300, 150, 500]);
+  // If background push is registered, the service worker shows the OS
+  // notification, so skip the page-level one to avoid a duplicate.
+  if ("Notification" in window && Notification.permission === "granted" && !window.__pushRegistered) {
+    try {
+      const n = new Notification("🔔 Home Calling Bell", {
+        body: message, tag: "home-bell", renotify: true,
+      });
+      n.onclick = () => { window.focus(); n.close(); };
+    } catch (e) {}
+  }
+}
+
+function setStatus(ok, text) {
+  $("dot").classList.toggle("on", !!ok);
+  $("statusText").textContent = text;
+}
+
+function connect() {
+  const es = new EventSource("/api/events");
+  es.addEventListener("hello", () => setStatus(true, "Connected and listening"));
+  es.addEventListener("ring", (e) => {
+    let data = {};
+    try { data = JSON.parse(e.data); } catch (err) {}
+    onRing(data);
+  });
+  es.onerror = () => setStatus(false, "Reconnecting…");
+}
+
+$("enable").addEventListener("click", enable);
+$("background").addEventListener("click", async () => {
+  await enableBackground();
+  window.__pushRegistered = $("background").disabled;
+});
+if ("Notification" in window && Notification.permission === "granted") {
+  $("enable").textContent = "Tap once to enable sound";
+}
+connect();
+refreshBackgroundState().then(() => { window.__pushRegistered = $("background").disabled; });
+
+// Keep the screen awake where supported.
+(async () => {
+  try { if ("wakeLock" in navigator) await navigator.wakeLock.request("screen"); } catch (e) {}
+})();
+</script>
+</body>
+</html>

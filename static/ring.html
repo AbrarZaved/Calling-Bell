@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Ring the Bell</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 22px; padding: 24px;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: #0f1115; color: #e8eaed; text-align: center;
+    -webkit-tap-highlight-color: transparent;
+  }
+  h1 { font-size: 20px; margin: 0; font-weight: 600; }
+  #bell {
+    width: min(70vw, 260px); height: min(70vw, 260px); border-radius: 50%;
+    border: 0; background: #dc2626; color: #fff; font-size: 24px;
+    font-weight: 700; cursor: pointer; box-shadow: 0 14px 40px rgba(220,38,38,.4);
+    transition: transform .08s ease, background .15s ease;
+  }
+  #bell:active { transform: scale(.95); }
+  #bell:disabled { background: #16a34a; box-shadow: none; }
+  p { margin: 0; color: #9aa0a6; font-size: 14px; }
+  #msg {
+    width: min(90vw, 320px); padding: 12px 14px; border-radius: 12px;
+    border: 1px solid #2a2f3a; background: #171a21; color: #e8eaed; font-size: 15px;
+  }
+</style>
+</head>
+<body>
+  <h1>Home Calling Bell</h1>
+  <input id="msg" placeholder="Optional message (e.g. Parcel at the gate)" maxlength="120" />
+  <button id="bell">RING</button>
+  <p id="status">Loading receivers…</p>
+
+<script>
+const bell = document.getElementById("bell");
+const status = document.getElementById("status");
+const msg = document.getElementById("msg");
+
+async function refresh() {
+  try {
+    const r = await fetch("/api/receivers");
+    const d = await r.json();
+    status.textContent = d.receivers + " receiver" + (d.receivers === 1 ? "" : "s") + " listening";
+  } catch (e) {
+    status.textContent = "Server unreachable";
+  }
+}
+
+bell.addEventListener("click", async () => {
+  bell.disabled = true;
+  const original = bell.textContent;
+  bell.textContent = "…";
+  try {
+    const r = await fetch("/api/ring", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message: msg.value.trim() || "Someone is at the door!" }),
+    });
+    const d = await r.json();
+    bell.textContent = d.receivers > 0 ? "RANG ✓" : "NO RECEIVER";
+    status.textContent = d.receivers > 0
+      ? "Delivered to " + d.receivers + " device" + (d.receivers === 1 ? "" : "s")
+      : "Nobody has /receive open yet";
+    if (navigator.vibrate) navigator.vibrate(120);
+  } catch (e) {
+    bell.textContent = "FAILED";
+    status.textContent = "Could not reach the server";
+  }
+  setTimeout(() => { bell.textContent = original; bell.disabled = false; refresh(); }, 2200);
+});
+
+refresh();
+setInterval(refresh, 5000);
+</script>
+</body>
+</html>

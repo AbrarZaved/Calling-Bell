@@ -1,0 +1,6 @@
+fastapi>=0.110
+uvicorn[standard]>=0.27
+
+# Needed only for background Web Push (notifications with the tab closed).
+# Also provides 'cryptography', used by gen_vapid_keys.py.
+pywebpush>=1.14

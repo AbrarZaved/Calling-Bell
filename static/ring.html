@@ -79,8 +79,8 @@ bell.addEventListener("click", async () => {
     bell.textContent = d.receivers > 0 ? "RANG ✓" : "NO RECEIVER";
     if (d.receivers > 0) {
       status.textContent = "Delivered to " + d.receivers + " device" + (d.receivers === 1 ? "" : "s");
-    } else if (d.subscriptions > 0) {
-      status.textContent = "No receiver tab is open right now; background push was sent to " + d.subscriptions + " subscribed device" + (d.subscriptions === 1 ? "" : "s") + ".";
+    } else if (d.pushed > 0) {
+      status.textContent = "No receiver tab is open right now; background push was sent to " + d.pushed + " subscribed device" + (d.pushed === 1 ? "" : "s") + ".";
     } else {
       status.textContent = "Nobody has /receive open yet";
     }
